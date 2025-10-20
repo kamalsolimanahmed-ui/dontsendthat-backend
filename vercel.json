@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "api/handler.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api/handler.py"
+    }
+  ]
+}
