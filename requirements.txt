@@ -2,3 +2,4 @@ Flask>=2.0
 Flask-Cors>=3.0
 openai>=1.0
 gunicorn
+firebase-admin>=6.3
