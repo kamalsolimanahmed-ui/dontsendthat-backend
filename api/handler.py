@@ -7,7 +7,7 @@ import os
 # Flask App Setup
 # ---------------------------------------------
 app = Flask(__name__)
-CORS(app)  # ✅ allow Chrome extension requests
+CORS(app)
 
 # ---------------------------------------------
 # OpenAI Setup
@@ -19,14 +19,14 @@ if not OPENAI_API_KEY:
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ---------------------------------------------
-# Health Check Endpoint
+# Root Route
 # ---------------------------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "✅ API is running!"})
 
 # ---------------------------------------------
-# Main Rewrite / Analyze Endpoint
+# Rewrite & Analyze Endpoint
 # ---------------------------------------------
 @app.route("/", methods=["POST"])
 def rewrite_text():
@@ -39,12 +39,10 @@ def rewrite_text():
         if not text:
             return jsonify({"error": "Missing text"}), 400
 
-        # -------------------------------
-        # Build prompt based on action
-        # -------------------------------
+        # --- Prompt logic ---
         if action == "analyze":
             prompt = (
-                f"Analyze the following message and return three labeled lines:\n"
+                f"Analyze this message and summarize:\n"
                 f"1. Emotion (e.g., Angry, Calm, Sad)\n"
                 f"2. Professionalism (Professional, Neutral, or Unprofessional)\n"
                 f"3. Risk Level (High, Medium, or Low)\n\n"
@@ -52,15 +50,12 @@ def rewrite_text():
             )
         elif action == "rewrite":
             prompt = (
-                f"Rewrite this message to sound respectful, natural, and clear "
-                f"for a {tone} context while keeping the same meaning:\n\n{text}"
+                f"Rewrite this message to sound respectful, natural, and clear, "
+                f"suitable for a {tone} context, without changing its meaning:\n\n{text}"
             )
         else:
             return jsonify({"error": "Invalid action"}), 400
 
-        # -------------------------------
-        # Call OpenAI
-        # -------------------------------
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
@@ -71,14 +66,14 @@ def rewrite_text():
         return jsonify({"rewritten_text": result})
 
     except Exception as e:
-        print("❌ Error:", e)
+        print("❌ Error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 
 # ---------------------------------------------
-# Local Dev Entry Point
+# Local testing (Render will override PORT)
 # ---------------------------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))  # ✅ use Render’s dynamic port
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
