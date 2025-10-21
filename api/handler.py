@@ -10,7 +10,8 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Stripe Setup ---
-stripe.api_key = os.getenv("STRIPE_SECRET")
+stripe.api_key = os.getenv("STRIPE_SECRET", "").strip()
+
 PRICE_ID = "price_1SKByAIDtEuyeKmr3ILbytRI"  # ✅ Your Stripe Price ID
 
 # --- OpenAI Setup ---
