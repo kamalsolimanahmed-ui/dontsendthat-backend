@@ -1,40 +1,85 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
-import os
-import firebase_admin
-from firebase_admin import credentials, firestore
+import os, json, secrets, stripe, datetime
 
-cred = credentials.Certificate("don-t-send-that-firebase-adminsdk-fbsvc-e777091990.json")
-firebase_admin.initialize_app(cred)
-db = firestore.client()
-
-
-# ---------------------------------------------
-# Flask App Setup
-# ---------------------------------------------
+# -------------------------------------------------------
+# INITIAL SETUP
+# -------------------------------------------------------
 app = Flask(__name__)
 CORS(app)
 
-# ---------------------------------------------
-# OpenAI Setup
-# ---------------------------------------------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise ValueError("❌ Missing OPENAI_API_KEY environment variable")
+# --- Stripe ---
+stripe.api_key = os.getenv("STRIPE_SECRET")
+PRICE_ID = "price_1SKBy9IDtEuyeKmrWN1eRvgJ"  # 
 
+# --- OpenAI ---
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ---------------------------------------------
-# Root Route
-# ---------------------------------------------
+# --- Token Storage ---
+TOKEN_FILE = "tokens.json"
+if not os.path.exists(TOKEN_FILE):
+    with open(TOKEN_FILE, "w") as f:
+        json.dump({"tokens": {}, "usage": {}}, f)
+
+def load_data():
+    with open(TOKEN_FILE, "r") as f:
+        return json.load(f)
+
+def save_data(data):
+    with open(TOKEN_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+# -------------------------------------------------------
+# ROUTES
+# -------------------------------------------------------
+
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"message": "✅ API is running!"})
+    return jsonify({"message": "✅ API running (Stripe + Token system ready)"})
 
-# ---------------------------------------------
-# Rewrite & Analyze Endpoint
-# ---------------------------------------------
+
+# --- Create Stripe Checkout ---
+@app.route("/create-checkout-session", methods=["POST"])
+def create_checkout():
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            payment_method_types=["card"],
+            line_items=[{"price": PRICE_ID, "quantity": 1}],
+            success_url="https://dontsendthat.com/success?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url="https://dontsendthat.com/cancel",
+        )
+        return jsonify({"url": session.url})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+# --- Generate Token after Payment (simple) ---
+@app.route("/generate-token", methods=["POST"])
+def generate_token():
+    """Call manually or via Stripe webhook after successful payment"""
+    data = load_data()
+    token = "DST-" + secrets.token_hex(4).upper()
+    email = request.json.get("email", "unknown")
+
+    data["tokens"][token] = {"email": email, "created": str(datetime.date.today())}
+    save_data(data)
+    return jsonify({"token": token})
+
+
+# --- Verify Token (for popup.js) ---
+@app.route("/verify-token", methods=["POST"])
+def verify_token():
+    token = request.json.get("token")
+    data = load_data()
+    if token in data["tokens"]:
+        return jsonify({"valid": True})
+    return jsonify({"valid": False}), 403
+
+
+# --- Main Rewrite/Analyze Endpoint ---
 @app.route("/", methods=["POST"])
 def rewrite_text():
     try:
@@ -42,23 +87,39 @@ def rewrite_text():
         action = data.get("action", "").lower()
         text = data.get("text", "").strip()
         tone = data.get("tone", "general").lower()
+        token = data.get("token")
 
         if not text:
             return jsonify({"error": "Missing text"}), 400
 
+        # --- Load token data ---
+        store = load_data()
+        is_pro = token in store["tokens"]
+
+        # --- Limit free users ---
+        ip = request.remote_addr
+        today = str(datetime.date.today())
+        usage = store["usage"].get(ip, {"count": 0, "date": today})
+
+        if not is_pro:
+            if usage["date"] != today:
+                usage = {"count": 0, "date": today}
+            if usage["count"] >= 3:
+                return jsonify({"message": "⚠️ Free limit reached. Go Pro for unlimited use."}), 403
+            usage["count"] += 1
+            store["usage"][ip] = usage
+            save_data(store)
+
         # --- Prompt logic ---
         if action == "analyze":
             prompt = (
-                f"Analyze this message and summarize:\n"
-                f"1. Emotion (e.g., Angry, Calm, Sad)\n"
-                f"2. Professionalism (Professional, Neutral, or Unprofessional)\n"
-                f"3. Risk Level (High, Medium, or Low)\n\n"
-                f"Message:\n{text}"
+                f"Analyze this message:\n"
+                f"1. Emotion\n2. Professionalism\n3. Risk Level\n\nMessage:\n{text}"
             )
         elif action == "rewrite":
             prompt = (
-                f"Rewrite this message to sound respectful, natural, and clear, "
-                f"suitable for a {tone} context, without changing its meaning:\n\n{text}"
+                f"Rewrite this message to sound respectful, natural, and clear "
+                f"for a {tone} context:\n\n{text}"
             )
         else:
             return jsonify({"error": "Invalid action"}), 400
@@ -70,16 +131,16 @@ def rewrite_text():
         )
 
         result = response.choices[0].message.content.strip()
-        return jsonify({"rewritten_text": result})
+        return jsonify({"rewritten_text": result, "pro": is_pro})
 
     except Exception as e:
         print("❌ Error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 
-# ---------------------------------------------
-# Local testing (Render will override PORT)
-# ---------------------------------------------
+# -------------------------------------------------------
+# MAIN
+# -------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
