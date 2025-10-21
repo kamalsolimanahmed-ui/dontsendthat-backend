@@ -2,6 +2,13 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 import os
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+cred = credentials.Certificate("don-t-send-that-firebase-adminsdk-fbsvc-e777091990.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
 
 # ---------------------------------------------
 # Flask App Setup
