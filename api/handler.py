@@ -11,12 +11,19 @@ CORS(app)
 
 # --- Stripe Setup ---
 stripe.api_key = os.getenv("STRIPE_SECRET", "").strip()
-
 PRICE_ID = "price_1SKBy9IDtEuyeKmrWN1eRvgJ"  # ✅ Your Stripe Price ID
 
 # --- OpenAI Setup ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# --- Whitelist (Full Access) ---
+WHITELIST = {
+    "kamalsolimanahmed@gmail.com",
+    "breogan51@hotmail.com",
+    "dad@gmail.com",
+    "sister@gmail.com"
+}
 
 # --- Token Storage ---
 TOKEN_FILE = "tokens.json"
@@ -38,7 +45,7 @@ def save_data(data):
 
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"message": "✅ API running (Stripe + Token system ready)"})
+    return jsonify({"message": "✅ API running (Stripe + Token + Whitelist ready)"})
 
 
 # -------------------------------------------------------
@@ -62,7 +69,6 @@ def create_checkout():
 
 
 @app.route("/success")
-@app.route("/success")
 def success():
     """Stripe redirect → generates Pro token"""
     session_id = request.args.get("session_id")
@@ -77,7 +83,6 @@ def success():
     data["tokens"][token] = {"email": email, "created": str(datetime.date.today())}
     save_data(data)
 
-    # ✅ Custom success page with auto-redirect
     return f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -152,13 +157,9 @@ def success():
                 navigator.clipboard.writeText("{token}");
                 alert("✅ Token copied!");
             }}
-
-            // Countdown + redirect
             let seconds = 5;
             const timer = document.getElementById("timer");
-            const redirectURL = "chrome-extension://YOUR_EXTENSION_ID/popup.html?token={token}"; 
-            // 🔁 Replace with your real Chrome extension or front-end page
-
+            const redirectURL = "chrome-extension://YOUR_EXTENSION_ID/popup.html?token={token}";
             const countdown = setInterval(() => {{
                 seconds--;
                 timer.textContent = seconds;
@@ -175,7 +176,6 @@ def success():
 
 @app.route("/verify-token", methods=["POST"])
 def verify_token():
-    """Checks if a token is valid"""
     token = request.json.get("token")
     data = load_data()
     if token in data["tokens"]:
@@ -198,9 +198,17 @@ def rewrite_text():
         if not text:
             return jsonify({"error": "Missing text"}), 400
 
-        # --- Load token data ---
         store = load_data()
         is_pro = token in store["tokens"]
+
+        # --- Whitelist check ---
+        email = None
+        for tdata in store["tokens"].values():
+            if "email" in tdata:
+                email = tdata["email"]
+                if email in WHITELIST:
+                    is_pro = True
+                    break
 
         # --- Limit free users ---
         ip = request.remote_addr
@@ -230,7 +238,6 @@ def rewrite_text():
         else:
             return jsonify({"error": "Invalid action"}), 400
 
-        # --- OpenAI call ---
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
