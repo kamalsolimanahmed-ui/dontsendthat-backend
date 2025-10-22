@@ -3,15 +3,15 @@ from flask_cors import CORS
 from openai import OpenAI
 import os, json, secrets, stripe, datetime
 
-# -------------------------------------------------------
-# INITIAL SETUP
+
+#  SETUP
 # -------------------------------------------------------
 app = Flask(__name__)
 CORS(app)
 
 # --- Stripe Setup ---
 stripe.api_key = os.getenv("STRIPE_SECRET", "").strip()
-PRICE_ID = "price_1SKBy9IDtEuyeKmrWN1eRvgJ"  # ✅ Your Stripe Price ID
+PRICE_ID = "price_1SKBy9IDtEuyeKmrWN1eRvgJ"  # stripe id
 
 # --- OpenAI Setup ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -37,7 +37,7 @@ def save_data(data):
     with open(TOKEN_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-# -------------------------------------------------------
+
 # ROUTES
 # -------------------------------------------------------
 
@@ -47,7 +47,7 @@ def home():
 
 
 # -------------------------------------------------------
-# STRIPE CHECKOUT FLOW
+# STRIPE CHECKOUT 
 # -------------------------------------------------------
 @app.route("/create-checkout-session", methods=["POST"])
 def create_checkout():
@@ -182,7 +182,7 @@ def verify_token():
 
 
 # -------------------------------------------------------
-# MAIN REWRITE / ANALYZE ENDPOINT
+# MAIN AND ANALYZE ENDPOINT
 # -------------------------------------------------------
 @app.route("/", methods=["POST"])
 def rewrite_text():
@@ -199,19 +199,19 @@ def rewrite_text():
         store = load_data()
         is_pro = token in store["tokens"]
 
-        # --- Whitelist check ---
+        # WHITElist check
         if not is_pro:
             for tdata in store["tokens"].values():
                 if "email" in tdata and tdata["email"] in WHITELIST:
                     is_pro = True
                     break
 
-        # --- Direct whitelist bypass (for your own IPs/emails) ---
+        # MY PEOPLE
         client_ip = request.remote_addr
         if any(email in WHITELIST for email in [data.get("email", ""), "kamalsolimanahmed@gmail.com", "breogan51@hotmail.com"]) or client_ip.startswith("192.168."):
             is_pro = True
 
-        # --- Limit free users ---
+        # CONTROL Limit free users ---
         ip = request.remote_addr
         today = str(datetime.date.today())
         usage = store["usage"].get(ip, {"count": 0, "date": today})
@@ -225,7 +225,7 @@ def rewrite_text():
             store["usage"][ip] = usage
             save_data(store)
 
-        # --- Prompt logic ---
+        #   logic 
         if action == "analyze":
             prompt = (
                 f"Analyze this message:\n"
