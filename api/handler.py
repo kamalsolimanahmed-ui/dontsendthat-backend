@@ -73,10 +73,83 @@ def success():
 
     token = "DST-" + secrets.token_hex(4).upper()
     data = load_data()
-    data["tokens"][token] = {"email": email, "created": str(datetime.date.today())}
+    data["tokens"][token] = {'email': email, 'created': str(datetime.date.today())}
     save_data(data)
 
-    return f"<h1>✅ Payment successful!</h1><p>Your Pro Token: <b>{token}</b></p>"
+    # ✅ Custom success page with pink theme
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Payment Successful 💌</title>
+        <style>
+            body {{
+                background: linear-gradient(135deg, #ff66b3, #ff99cc);
+                font-family: 'Poppins', sans-serif;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                color: white;
+                text-align: center;
+            }}
+            .card {{
+                background: white;
+                color: #333;
+                border-radius: 16px;
+                padding: 40px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+                max-width: 400px;
+            }}
+            h1 {{
+                color: #ff4fa3;
+                margin-bottom: 10px;
+            }}
+            .token {{
+                background: #f7f7f7;
+                border-radius: 10px;
+                padding: 10px 20px;
+                margin: 15px 0;
+                font-weight: bold;
+                font-size: 1.1rem;
+            }}
+            button {{
+                background: #ff4fa3;
+                color: white;
+                border: none;
+                padding: 12px 24px;
+                border-radius: 10px;
+                cursor: pointer;
+                font-size: 1rem;
+                transition: 0.2s;
+            }}
+            button:hover {{
+                background: #ff2d8b;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>💖 Payment Successful!</h1>
+            <p>Thank you for supporting <b>Don’t Send That</b>.</p>
+            <p>Your Pro Token:</p>
+            <div class="token">{token}</div>
+            <button onclick="copyToken()">Copy Token</button>
+            <p style="margin-top:20px;font-size:0.9em;color:#777;">Paste this token in your extension to unlock Pro.</p>
+        </div>
+
+        <script>
+            function copyToken() {{
+                navigator.clipboard.writeText("{token}");
+                alert("✅ Token copied!");
+            }}
+        </script>
+    </body>
+    </html>
+    """
 
 
 @app.route("/verify-token", methods=["POST"])
