@@ -62,6 +62,7 @@ def create_checkout():
 
 
 @app.route("/success")
+@app.route("/success")
 def success():
     """Stripe redirect → generates Pro token"""
     session_id = request.args.get("session_id")
@@ -73,10 +74,10 @@ def success():
 
     token = "DST-" + secrets.token_hex(4).upper()
     data = load_data()
-    data["tokens"][token] = {'email': email, 'created': str(datetime.date.today())}
+    data["tokens"][token] = {"email": email, "created": str(datetime.date.today())}
     save_data(data)
 
-    # ✅ Custom success page with pink theme
+    # ✅ Custom success page with auto-redirect
     return f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -129,6 +130,11 @@ def success():
             button:hover {{
                 background: #ff2d8b;
             }}
+            .redirect {{
+                margin-top: 15px;
+                font-size: 0.9rem;
+                color: #777;
+            }}
         </style>
     </head>
     <body>
@@ -138,7 +144,7 @@ def success():
             <p>Your Pro Token:</p>
             <div class="token">{token}</div>
             <button onclick="copyToken()">Copy Token</button>
-            <p style="margin-top:20px;font-size:0.9em;color:#777;">Paste this token in your extension to unlock Pro.</p>
+            <p class="redirect">Redirecting to your extension in <span id="timer">5</span> seconds…</p>
         </div>
 
         <script>
@@ -146,6 +152,21 @@ def success():
                 navigator.clipboard.writeText("{token}");
                 alert("✅ Token copied!");
             }}
+
+            // Countdown + redirect
+            let seconds = 5;
+            const timer = document.getElementById("timer");
+            const redirectURL = "chrome-extension://YOUR_EXTENSION_ID/popup.html?token={token}"; 
+            // 🔁 Replace with your real Chrome extension or front-end page
+
+            const countdown = setInterval(() => {{
+                seconds--;
+                timer.textContent = seconds;
+                if (seconds <= 0) {{
+                    clearInterval(countdown);
+                    window.location.href = redirectURL;
+                }}
+            }}, 1000);
         </script>
     </body>
     </html>
