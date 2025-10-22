@@ -20,9 +20,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # --- Whitelist (Full Access) ---
 WHITELIST = {
     "kamalsolimanahmed@gmail.com",
-    "breogan51@hotmail.com",
-    "dad@gmail.com",
-    "sister@gmail.com"
+    "breogan51@hotmail.com"
 }
 
 # --- Token Storage ---
@@ -202,13 +200,16 @@ def rewrite_text():
         is_pro = token in store["tokens"]
 
         # --- Whitelist check ---
-        email = None
-        for tdata in store["tokens"].values():
-            if "email" in tdata:
-                email = tdata["email"]
-                if email in WHITELIST:
+        if not is_pro:
+            for tdata in store["tokens"].values():
+                if "email" in tdata and tdata["email"] in WHITELIST:
                     is_pro = True
                     break
+
+        # --- Direct whitelist bypass (for your own IPs/emails) ---
+        client_ip = request.remote_addr
+        if any(email in WHITELIST for email in [data.get("email", ""), "kamalsolimanahmed@gmail.com", "breogan51@hotmail.com"]) or client_ip.startswith("192.168."):
+            is_pro = True
 
         # --- Limit free users ---
         ip = request.remote_addr
