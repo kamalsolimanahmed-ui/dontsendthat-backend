@@ -3,25 +3,22 @@ from flask_cors import CORS
 from openai import OpenAI
 import os, json, secrets, stripe, datetime
 
-
-#  SETUP
+# -------------------------------------------------------
+# SETUP
 # -------------------------------------------------------
 app = Flask(__name__)
 CORS(app)
 
 # --- Stripe Setup ---
 stripe.api_key = os.getenv("STRIPE_SECRET", "").strip()
-PRICE_ID = "price_1SKBy9IDtEuyeKmrWN1eRvgJ"  # stripe id
+PRICE_ID = "price_1SKBy9IDtEuyeKmrWN1eRvgJ"  # Stripe price ID
 
 # --- OpenAI Setup ---
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- Whitelist (Full Access) ---
-WHITELIST = {
-    "kamalsolimanahmed@gmail.com",
-    "breogan51@hotmail.com"
-}
+WHITELIST = {"kamalsolimanahmed@gmail.com", "breogan51@hotmail.com"}
 
 # --- Token Storage ---
 TOKEN_FILE = "tokens.json"
@@ -29,29 +26,30 @@ if not os.path.exists(TOKEN_FILE):
     with open(TOKEN_FILE, "w") as f:
         json.dump({"tokens": {}, "usage": {}}, f)
 
+
 def load_data():
     with open(TOKEN_FILE, "r") as f:
         return json.load(f)
+
 
 def save_data(data):
     with open(TOKEN_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
 
+# -------------------------------------------------------
 # ROUTES
 # -------------------------------------------------------
-
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"message": "✅ API running (Stripe + Token + Whitelist ready)"})
+    return jsonify({"message": "✅ API running (Stripe + Token + Language ready)"})
 
 
 # -------------------------------------------------------
-# STRIPE CHECKOUT 
+# STRIPE CHECKOUT
 # -------------------------------------------------------
 @app.route("/create-checkout-session", methods=["POST"])
 def create_checkout():
-    """Creates a Stripe Checkout session"""
     try:
         session = stripe.checkout.Session.create(
             mode="subscription",
@@ -68,7 +66,6 @@ def create_checkout():
 
 @app.route("/success")
 def success():
-    """Stripe redirect → generates Pro token"""
     session_id = request.args.get("session_id")
     if not session_id:
         return "Missing session ID", 400
@@ -82,91 +79,13 @@ def success():
     save_data(data)
 
     return f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Payment Successful 💌</title>
-        <style>
-            body {{
-                background: linear-gradient(135deg, #ff66b3, #ff99cc);
-                font-family: 'Poppins', sans-serif;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                color: white;
-                text-align: center;
-            }}
-            .card {{
-                background: white;
-                color: #333;
-                border-radius: 16px;
-                padding: 40px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-                max-width: 400px;
-            }}
-            h1 {{
-                color: #ff4fa3;
-                margin-bottom: 10px;
-            }}
-            .token {{
-                background: #f7f7f7;
-                border-radius: 10px;
-                padding: 10px 20px;
-                margin: 15px 0;
-                font-weight: bold;
-                font-size: 1.1rem;
-            }}
-            button {{
-                background: #ff4fa3;
-                color: white;
-                border: none;
-                padding: 12px 24px;
-                border-radius: 10px;
-                cursor: pointer;
-                font-size: 1rem;
-                transition: 0.2s;
-            }}
-            button:hover {{
-                background: #ff2d8b;
-            }}
-            .redirect {{
-                margin-top: 15px;
-                font-size: 0.9rem;
-                color: #777;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <h1>💖 Payment Successful!</h1>
-            <p>Thank you for supporting <b>Don’t Send That</b>.</p>
-            <p>Your Pro Token:</p>
-            <div class="token">{token}</div>
-            <button onclick="copyToken()">Copy Token</button>
-            <p class="redirect">Redirecting to your extension in <span id="timer">5</span> seconds…</p>
-        </div>
-
-        <script>
-            function copyToken() {{
-                navigator.clipboard.writeText("{token}");
-                alert("✅ Token copied!");
-            }}
-            let seconds = 5;
-            const timer = document.getElementById("timer");
-            const redirectURL = "chrome-extension://YOUR_EXTENSION_ID/popup.html?token={token}";
-            const countdown = setInterval(() => {{
-                seconds--;
-                timer.textContent = seconds;
-                if (seconds <= 0) {{
-                    clearInterval(countdown);
-                    window.location.href = redirectURL;
-                }}
-            }}, 1000);
-        </script>
+    <html>
+    <head><title>Payment Successful 💌</title></head>
+    <body style="font-family:sans-serif;text-align:center;margin-top:80px;">
+        <h1>💖 Payment Successful!</h1>
+        <p>Your Pro Token:</p>
+        <h3>{token}</h3>
+        <p>Copy and paste this into your extension.</p>
     </body>
     </html>
     """
@@ -182,7 +101,7 @@ def verify_token():
 
 
 # -------------------------------------------------------
-# MAIN AND ANALYZE ENDPOINT
+# MAIN AI ENDPOINT
 # -------------------------------------------------------
 @app.route("/", methods=["POST"])
 def rewrite_text():
@@ -199,19 +118,21 @@ def rewrite_text():
         store = load_data()
         is_pro = token in store["tokens"]
 
-        # WHITElist check
+        # --- Whitelist Check ---
         if not is_pro:
             for tdata in store["tokens"].values():
-                if "email" in tdata and tdata["email"] in WHITELIST:
+                if tdata.get("email") in WHITELIST:
                     is_pro = True
                     break
 
-        # MY PEOPLE
         client_ip = request.remote_addr
-        if any(email in WHITELIST for email in [data.get("email", ""), "kamalsolimanahmed@gmail.com", "breogan51@hotmail.com"]) or client_ip.startswith("192.168."):
+        if any(
+            email in WHITELIST
+            for email in [data.get("email", ""), "kamalsolimanahmed@gmail.com", "breogan51@hotmail.com"]
+        ) or client_ip.startswith("192.168."):
             is_pro = True
 
-        # CONTROL Limit free users ---
+        # --- Limit for Free Users ---
         ip = request.remote_addr
         today = str(datetime.date.today())
         usage = store["usage"].get(ip, {"count": 0, "date": today})
@@ -225,28 +146,51 @@ def rewrite_text():
             store["usage"][ip] = usage
             save_data(store)
 
-        #   logic 
+        # -------------------------------------------------------
+        # Language Detection (auto-respond in same language)
+        # -------------------------------------------------------
+        detect = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Detect the language of this text and reply only with its name, e.g., English, Spanish, French, Arabic, etc."},
+                {"role": "user", "content": text},
+            ],
+            max_tokens=10,
+        )
+        lang = detect.choices[0].message.content.strip()
+
+        # -------------------------------------------------------
+        # based behavior
+        # -------------------------------------------------------
         if action == "analyze":
             prompt = (
-                f"Analyze this message:\n"
+                f"Analyze this message in {lang}:\n"
                 f"1. Emotion\n2. Professionalism\n3. Risk Level\n\nMessage:\n{text}"
             )
         elif action == "rewrite":
             prompt = (
-                f"Rewrite this message to sound respectful, natural, and clear "
-                f"for a {tone} context:\n\n{text}"
+                f"You are a helpful assistant that rewrites messages in the same language ({lang}). "
+                f"Make the tone kind, respectful, and natural for a {tone} context. "
+                f"Keep it short and human-sounding.\n\n"
+                f"Message:\n{text}"
             )
         else:
             return jsonify({"error": "Invalid action"}), 400
 
+        # -------------------------------------------------------
+        #  AI Response
+        # -------------------------------------------------------
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": f"Reply in {lang}. Make sure tone matches {tone} context."},
+                {"role": "user", "content": prompt},
+            ],
             max_tokens=300,
         )
 
         result = response.choices[0].message.content.strip()
-        return jsonify({"rewritten_text": result, "pro": is_pro})
+        return jsonify({"rewritten_text": result, "language": lang, "pro": is_pro})
 
     except Exception as e:
         print("❌ Error:", str(e))
@@ -259,3 +203,4 @@ def rewrite_text():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
