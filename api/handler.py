@@ -11,14 +11,17 @@ CORS(app)
 
 # --- Stripe Setup ---
 stripe.api_key = os.getenv("STRIPE_SECRET", "").strip()
-PRICE_ID = "price_1SKBy9IDtEuyeKmrWN1eRvgJ"  # Stripe price ID
+PRICE_ID = "price_1SKBy9IDtEuyeKmrWN1eRvgJ"  
 
 # --- OpenAI Setup ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- Whitelist (Full Access) ---
-WHITELIST = {"kamalsolimanahmed@gmail.com", "breogan51@hotmail.com"}
+# --- Whitelist (Emails that get FREE Pro access) ---
+WHITELIST = {
+    "kamalsolimanahmed@gmail.com",
+    "breogan51@hotmail.com"
+}
 
 # --- Token Storage ---
 TOKEN_FILE = "tokens.json"
@@ -38,11 +41,52 @@ def save_data(data):
 
 
 # -------------------------------------------------------
+# SECURITY FIX: Check if Stripe subscription is ACTIVE
+# -------------------------------------------------------
+def is_subscription_active(token):
+    """Check if token's subscription is still active with Stripe"""
+    if not token:
+        return False
+        
+    data = load_data()
+    
+    if token not in data["tokens"]:
+        return False
+    
+    token_info = data["tokens"][token]
+    
+    # CHECK WHITELIST: If email is whitelisted, give Pro for free
+    email = token_info.get("email", "")
+    if email in WHITELIST:
+        return True  # Whitelisted = Free Pro!
+    
+    stripe_customer_id = token_info.get("stripe_customer_id")
+    
+    if not stripe_customer_id:
+        return False
+    
+    try:
+        # Check Stripe for active subscriptions
+        subscriptions = stripe.Subscription.list(
+            customer=stripe_customer_id,
+            status='active',
+            limit=1
+        )
+        
+        # If they have an active subscription, they're Pro
+        return len(subscriptions.data) > 0
+        
+    except Exception as e:
+        print(f"❌ Stripe check error: {e}")
+        return False
+
+
+# -------------------------------------------------------
 # ROUTES
 # -------------------------------------------------------
 @app.route("/", methods=["GET"])
 def home():
-    return jsonify({"message": "✅ API running (Stripe + Token + Language ready)"})
+    return jsonify({"message": "✅ API running (SECURE version)"})
 
 
 # -------------------------------------------------------
@@ -70,38 +114,97 @@ def success():
     if not session_id:
         return "Missing session ID", 400
 
-    session = stripe.checkout.Session.retrieve(session_id)
-    email = session.get("customer_details", {}).get("email", "unknown")
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        email = session.get("customer_details", {}).get("email", "unknown")
+        customer_id = session.get("customer")  # CRITICAL: Get Stripe customer ID
+        
+        token = "DST-" + secrets.token_hex(8).upper()
+        
+        data = load_data()
+        # SECURITY FIX: Store Stripe customer ID with token
+        data["tokens"][token] = {
+            "email": email,
+            "stripe_customer_id": customer_id,  # IMPORTANT!
+            "created": str(datetime.date.today())
+        }
+        save_data(data)
 
-    token = "DST-" + secrets.token_hex(4).upper()
-    data = load_data()
-    data["tokens"][token] = {"email": email, "created": str(datetime.date.today())}
-    save_data(data)
+        return f"""
+        <html>
+        <head><title>Payment Successful 💌</title></head>
+        <body style="font-family:sans-serif;text-align:center;margin-top:80px;">
+            <h1>💖 Payment Successful!</h1>
+            <p>Your Pro Token:</p>
+            <h3 style="background:#f0f0f0;padding:15px;border-radius:10px;">{token}</h3>
+            <p>Copy and paste this into your extension.</p>
+            <p style="color:red;"><strong>⚠️ Keep this token private! Do not share!</strong></p>
+        </body>
+        </html>
+        """
+    except Exception as e:
+        return f"Error: {str(e)}", 500
 
-    return f"""
+
+@app.route("/cancel")
+def cancel():
+    return """
     <html>
-    <head><title>Payment Successful 💌</title></head>
+    <head><title>Payment Cancelled</title></head>
     <body style="font-family:sans-serif;text-align:center;margin-top:80px;">
-        <h1>💖 Payment Successful!</h1>
-        <p>Your Pro Token:</p>
-        <h3>{token}</h3>
-        <p>Copy and paste this into your extension.</p>
+        <h1>Payment Cancelled</h1>
+        <p>You can try again anytime!</p>
     </body>
     </html>
     """
 
 
+# -------------------------------------------------------
+# WHITELIST: Generate free token for whitelisted emails
+# -------------------------------------------------------
+@app.route("/get-whitelist-token", methods=["POST"])
+def get_whitelist_token():
+    """Generate a free Pro token for whitelisted emails"""
+    email = request.json.get("email", "").strip().lower()
+    
+    if email not in WHITELIST:
+        return jsonify({"error": "Email not whitelisted"}), 403
+    
+    # Generate token
+    token = "DST-WL-" + secrets.token_hex(6).upper()
+    
+    data = load_data()
+    data["tokens"][token] = {
+        "email": email,
+        "stripe_customer_id": None,  # No Stripe for whitelist
+        "whitelisted": True,
+        "created": str(datetime.date.today())
+    }
+    save_data(data)
+    
+    return jsonify({
+        "token": token,
+        "email": email,
+        "message": "Free Pro token generated!"
+    })
+
+
+# -------------------------------------------------------
+# SECURITY FIX: Verify token AND subscription status
+# -------------------------------------------------------
 @app.route("/verify-token", methods=["POST"])
 def verify_token():
     token = request.json.get("token")
-    data = load_data()
-    if token in data["tokens"]:
+    
+    # Check if token exists AND subscription is active
+    if is_subscription_active(token):
         return jsonify({"valid": True})
+    
     return jsonify({"valid": False}), 403
 
 
 # -------------------------------------------------------
-# MAIN AI ENDPOINT
+# MAIN AI ENDPOINT (SECURED)
 # -------------------------------------------------------
 @app.route("/", methods=["POST"])
 def rewrite_text():
@@ -116,32 +219,26 @@ def rewrite_text():
             return jsonify({"error": "Missing text"}), 400
 
         store = load_data()
-        is_pro = token in store["tokens"]
-
-        # --- Whitelist Check ---
-        if not is_pro:
-            for tdata in store["tokens"].values():
-                if tdata.get("email") in WHITELIST:
-                    is_pro = True
-                    break
-
-        client_ip = request.remote_addr
-        if any(
-            email in WHITELIST
-            for email in [data.get("email", ""), "kamalsolimanahmed@gmail.com", "breogan51@hotmail.com"]
-        ) or client_ip.startswith("192.168."):
-            is_pro = True
+        
+        # SECURITY FIX: Check if token has ACTIVE subscription
+        is_pro = is_subscription_active(token)
 
         # --- Limit for Free Users ---
-        ip = request.remote_addr
-        today = str(datetime.date.today())
-        usage = store["usage"].get(ip, {"count": 0, "date": today})
-
         if not is_pro:
+            ip = request.remote_addr
+            today = str(datetime.date.today())
+            usage = store["usage"].get(ip, {"count": 0, "date": today})
+
+            # Reset count if new day
             if usage["date"] != today:
                 usage = {"count": 0, "date": today}
-            if usage["count"] >= 3:
-                return jsonify({"message": "⚠️ Free limit reached. Go Pro for unlimited use."}), 403
+            
+            # Check limit (2 messages per day for free users)
+            if usage["count"] >= 2:
+                return jsonify({
+                    "message": "⚠️ Free limit reached (2 messages/day). Upgrade to Pro for unlimited!"
+                }), 403
+            
             usage["count"] += 1
             store["usage"][ip] = usage
             save_data(store)
@@ -160,7 +257,7 @@ def rewrite_text():
         lang = detect.choices[0].message.content.strip()
 
         # -------------------------------------------------------
-        # based behavior
+        # Action-based behavior
         # -------------------------------------------------------
         if action == "analyze":
             prompt = (
@@ -178,7 +275,7 @@ def rewrite_text():
             return jsonify({"error": "Invalid action"}), 400
 
         # -------------------------------------------------------
-        #  AI Response
+        # Get AI Response
         # -------------------------------------------------------
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -203,4 +300,3 @@ def rewrite_text():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
